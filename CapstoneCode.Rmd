@@ -1,0 +1,153 @@
+---
+title: "Capstone Project"
+author: "Shizu Someya"
+date: "`r Sys.Date()`"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme: readable
+---
+
+# Examining Association Between Environmental Chemical Exposures and Cancer Incidence in Racially and Ethnically Diverse Women in the United States
+
+## How do specific environmental chemicals (BPA, phthalates, pesticides) correlate with various cancers and health outcomes in the U.S.?
+
+```{r load-data, warning=FALSE, message=FALSE, echo=FALSE}
+#Load Dataset
+library(tidyverse)
+library(readr)
+
+headers <- read_csv("~/Downloads/CTD_exposure_studies.csv", skip = 26, col_names = FALSE, n_max = 1)
+
+CTD_chemicals_diseases <- read_csv("~/Downloads/CTD_exposure_studies.csv", skip = 28, col_names = as.character(headers[1, ]))
+```
+
+
+```{r clean, warning=FALSE, message=FALSE, echo=FALSE}
+#Clean Dataset
+library(dplyr)
+
+#Clean Dataset
+CTD_chemicals_diseases <- CTD_chemicals_diseases %>%
+  mutate(exposurestressors_clean = sub("\\^.*", "", exposurestressors),
+         receptors_clean = sub("^\\^*", "", receptors),
+         diseases_clean = sub("\\^.*", "", diseases))
+
+```
+
+
+```{r filter-data, warning=FALSE, message=FALSE, echo=FALSE}
+#Filter Dataset to Necessary Variables
+
+#Identify target variables
+target_chemicals <- c("BPA", "bpa", "bisphenol", "bisphenol A", "bisphenolA", "bisphenol a", "Phthalate", "phthalate", "Pesticide", "pesticide")
+target_country <- "United States"
+
+filtered_chemicals <- CTD_chemicals_diseases %>%
+  filter(grepl(paste(target_chemicals, collapse = "|"), exposurestressors_clean, ignore.case = TRUE))
+unique(filtered_chemicals$exposurestressors_clean)
+
+filtered_countries <- filtered_chemicals %>%
+  mutate(diseases_clean = sub("\\^.*", "", diseases)) %>%
+  filter(grepl("\\bUnited States\\b|\\bU\\.S\\b", studycountries, ignore.case = TRUE))
+unique(filtered_countries$studycountries)
+
+filtered_CTD <- filtered_countries
+
+#Account for missing data in cleaned diseases
+filtered_CTD <- filtered_CTD %>%
+  filter(diseases_clean != "Unknown")
+
+#Remove unnecessary columns
+filtered_CTD_cleaned <- filtered_CTD %>%
+  select(-studyfactors, -phenotypes, -exposuremarkers,
+         -diseases, -exposurestressors, -receptors)
+
+#Account for missing data in mediums
+filtered_CTD_cleaned$mediums[is.na(filtered_CTD_cleaned$mediums)] <- "Unknown"
+
+#Create 3 categories (BPA, phthalates, pesticides)
+filtered_CTD_cleaned <- filtered_CTD_cleaned %>%
+  mutate(chemical_category = case_when(
+    grepl("BPA|bisphenol", exposurestressors_clean, ignore.case = TRUE) ~ "BPA",
+    grepl("Phthalate|phthalate", exposurestressors_clean, ignore.case = TRUE) ~ "Phthalates",
+    grepl("Pesticide|pesticide", exposurestressors_clean, ignore.case = TRUE) ~ "Pesticides"
+  ))
+```
+
+# HTML Widget 1 - Bar Plot
+
+#### A visual of the association between environmental chemical exposure (like BPA, phthalates, and pesticides) and disease incidence
+
+```{r bar-plot, warning=FALSE, message=FALSE}
+library(plotly)
+
+#Contingency table for exposurestressors_clean vs diseases_clean
+contingency_table <- table(filtered_CTD_cleaned$chemical_category, filtered_CTD_cleaned$diseases_clean)
+
+#Convert to dataframe
+ctd_df <- as.data.frame(contingency_table)
+colnames(ctd_df) <- c("Chemical_Category", "Disease", "Count")
+
+#Interactive stacked bar plot
+ctd_plot <- plot_ly(ctd_df, x = ~Chemical_Category, y = ~Count, color = ~Disease, type = 'bar',
+             text = ~paste(Disease, ": ", Count), hoverinfo = 'text', 
+             barmode = 'stack') %>%
+  layout(title = "Association Between Environmental Chemicals and Disease Types",
+         xaxis = list(title = "Environmental Chemicals", tickangle = 0),
+         yaxis = list(title = "Number of Reported Associations"))
+
+#Print the plot
+ctd_plot
+```
+
+# HTML Widget 2 - DT Table
+
+#### An interactive and detailed guide of all of the diseases associated specifically with BPA, phthalates, and pesticides
+
+```{r dt, warning=FALSE, message=FALSE}
+library(DT)
+
+#Rename table columns for easier readability
+filtered_CTD_cleaned <- filtered_CTD_cleaned %>%
+  rename(
+    Study_ID = '# reference',
+    Environmental_chemicals = chemical_category,
+    Diseases = diseases_clean,
+    Study_subjects = receptors_clean
+  )
+
+#Rearrange order of columns
+filtered_CTD_cleaned <- filtered_CTD_cleaned %>%
+  select(Study_ID, Environmental_chemicals, Diseases, Study_subjects)
+
+#Create an interactive DT table
+DT::datatable(filtered_CTD_cleaned, 
+              options = list(pageLength = 10, autoWidth = TRUE), 
+              filter = "top",
+              class = 'cell-border stripe', 
+              caption = "Environmental Chemical and Diseases")
+```
+
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+# Dataset
+
+### About the Dataset
+
+The data were obtained from the [CTD Exposure Studies dataset](https://ctdbase.org/). The dataset includes a compilation of environmental chemical exposure studies across multiple countries. This analysis filters studies conducted in the **United States**, specifically examining the association between **BPA**, **phthalates**, and **pesticides** and health outcomes. The dataset contains around 60 observations after filtering and cleaning. Data were collected through curated scientific literature and publicly available databases, and represent diverse U.S. populations, primarily women.
+
+# Analysis
+
+## Bar Plot:
+BPA, phthalates, and pesticides are associated with both **cancerous** (breast neoplasms and Burkitt lymphoma) and **non-cancerous disease**s. While the majority of these diseases are non-cancerous, many are associated with an increased risk in developing certain cancers such as hypertension, diabetes, and obesity. Among the three chemicals, BPA and pesticides have a a **higher volume** of reported instances, suggesting a stronger association with disease outcomes compared to phthalates. This could indicate higher exposure levels or a higher count of research linking the two chemicals to adverse health effects. The presence of multiple diseases within each category underscores the broad and systemic impact of environmental chemical exposures on human health.
+
+## DT Table: 
+This **DT table** offers a detailed overview of the relationship between environmental chemicals and the diseases they are associated with. It enables users to filter and search for specific chemicals (such as BPA, phthalates, or pesticides) and diseases, providing a more interactive way to explore the data. When combined with the bar plot, the table allows for deeper insights into which chemicals may be linked to specific diseases. The table can be ordered by any of the variables, allowing users to compare and contrast. For instance, when sorting by chemical category, users can observe that phthalates have fewer associations compared to BPA and pesticides. Additionally, the table highlights diseases that appear across multiple chemicals, emphasizing the broad impact of environmental exposures. While the table does not establish causation, it helps identify areas where further research may be needed.
+
+# Real-World Impact
+
+This dashboard supports public health efforts by identifying which chemicals are most commonly associated with disease. By visually showing potential links, it can guide future research and regulatory action.
+
